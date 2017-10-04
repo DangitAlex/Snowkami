@@ -20,9 +20,10 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 	
-	GetCharacterMovement()->GetNavAgentProperties()->bCanCrouch = true;
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 	GetCharacterMovement()->CrouchedHalfHeight = 9.f;
 	GetCharacterMovement()->bCanWalkOffLedgesWhenCrouching = true;
+	GetCharacterMovement()->bCanWalkOffLedges = true;
 	GetCharacterMovement()->MaxWalkSpeedCrouched = 125.f;
 
 	// set our turn rates for input
@@ -37,7 +38,7 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 225.0f, 0.0f); // ...at this rotation rate
-	GetCharacterMovement()->JumpZVelocity = 375.f;
+	GetCharacterMovement()->JumpZVelocity = 350.f;
 	GetCharacterMovement()->AirControl = 0.2f;
 	/*GetCharacterMovement()->GravityScale = 1.f;
 	GetCharacterMovement()->BrakingFriction = 0.f;
@@ -47,7 +48,7 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	// Create a camera boom (pulls in towards the player if there is a collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 100.0f; // The camera follows at this distance behind the character	
+	CameraBoom->TargetArmLength = 75.0f; // The camera follows at this distance behind the character	
 	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
 
 	// Create a follow camera
@@ -65,7 +66,8 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	SnowText->SetupAttachment(RootComponent);
 	SnowText->SetHiddenInGame(true);
 
-	bWantsToRun = false;
+	bIsJumpPressed = false;
+	bRunPressed = false;
 	bIsSnowPressed = false;
 	bCrouchPressed = false;
 
@@ -95,6 +97,9 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	CameraInterpSpeed_FOV = 2.f;
 	
 	bTempUseNon2DControls = false;
+
+	Cast<UShapeComponent>(GetRootComponent())->SetNotifyRigidBodyCollision(true);
+	Cast<UShapeComponent>(GetRootComponent())->OnComponentHit.AddDynamic(this, &ASnowkamiCharacter::OnHit);
 }
 
 ASnowkamiCharacter* ASnowkamiCharacter::GetDefaultPlayerObject()
@@ -113,12 +118,16 @@ void ASnowkamiCharacter::SetupPlayerInputComponent(class UInputComponent* Player
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
 	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
 
+	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &ASnowkamiCharacter::OnCrouchPressed);
+	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &ASnowkamiCharacter::OnCrouchReleased);
+
 	PlayerInputComponent->BindAxis("MoveForward", this, &ASnowkamiCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &ASnowkamiCharacter::MoveRight);
 
 	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
 	// "turn" handles devices that provide an absolute delta, such as a mouse.
 	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick
+
 	PlayerInputComponent->BindAxis("Turn", this, &ASnowkamiCharacter::UpdateCameraFromMouse_Yaw);
 	PlayerInputComponent->BindAxis("TurnRate", this, &ASnowkamiCharacter::TurnAtRate);
 	PlayerInputComponent->BindAxis("LookUp", this, &ASnowkamiCharacter::UpdateCameraFromMouse_Pitch);
@@ -129,9 +138,6 @@ void ASnowkamiCharacter::SetupPlayerInputComponent(class UInputComponent* Player
 
 	PlayerInputComponent->BindAction("Run", IE_Pressed, this, &ASnowkamiCharacter::OnRunPressed);
 	PlayerInputComponent->BindAction("Run", IE_Released, this, &ASnowkamiCharacter::OnRunReleased);
-
-	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &ASnowkamiCharacter::OnCrouchPressed);
-	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &ASnowkamiCharacter::OnCrouchReleased);
 
 	PlayerInputComponent->BindAction("Snow", IE_Pressed, this, &ASnowkamiCharacter::OnSnowPressed);
 	PlayerInputComponent->BindAction("Snow", IE_Released, this, &ASnowkamiCharacter::OnSnowReleased);
@@ -206,9 +212,22 @@ void ASnowkamiCharacter::MoveRight(float Value)
 	}
 }
 
+void ASnowkamiCharacter::OnHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+ 	if (GetCharacterMovement() && GetCharacterMovement()->IsFalling() && bIsJumpPressed)
+	{
+		//Hit.Normal();
+		//DebugPlayer(FColor::White, "HIT", 0);
+		bIsPerformingWallAction = true;
+		GetCharacterMovement()->AddImpulse(FVector(0.f, 0.f, 9.f), true);
+	}
+}
+
 void ASnowkamiCharacter::Jump()
 {
 	Super::Jump();
+
+	bIsJumpPressed = true;
 
 	if (CanJump() && bIsSnowPressed)
 	{
@@ -217,6 +236,36 @@ void ASnowkamiCharacter::Jump()
 		GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed * SnowJump_WalkSpeedMult;
 		SnowVFX->SetActive(false);
 	}
+}
+
+void ASnowkamiCharacter::StopJumping()
+{
+	Super::StopJumping();
+
+	bIsJumpPressed = false;
+}
+
+void ASnowkamiCharacter::OnCrouchPressed() { if(CanCrouch()) Crouch(false); }
+void ASnowkamiCharacter::OnCrouchReleased() { UnCrouch(false); }
+
+void ASnowkamiCharacter::Crouch(bool bClientSimulation)
+{
+	Super::Crouch(bClientSimulation);
+
+	bCrouchPressed = true;
+
+	GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
+}
+
+void ASnowkamiCharacter::UnCrouch(bool bClientSimulation)
+{
+	Super::UnCrouch(bClientSimulation);
+
+	bCrouchPressed = false;
+
+	if (bRunPressed)
+		OnRunPressed();
+
 }
 
 void ASnowkamiCharacter::OnYipPressed()
@@ -236,7 +285,7 @@ void ASnowkamiCharacter::Yip()
 
 void ASnowkamiCharacter::OnRunPressed()
 {
-	bWantsToRun = true;
+	bRunPressed = true;
 
 	if (!bCrouchPressed)
 	{
@@ -250,26 +299,8 @@ void ASnowkamiCharacter::OnRunPressed()
 
 void ASnowkamiCharacter::OnRunReleased()
 {
-	bWantsToRun = false;
+	bRunPressed = false;
 	GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
-}
-
-void ASnowkamiCharacter::OnCrouchPressed()
-{
-	bCrouchPressed = true;
-
-	Crouch();
-	GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
-}
-
-void ASnowkamiCharacter::OnCrouchReleased()
-{
-	bCrouchPressed = false;
-
-	UnCrouch();
-	
-	if (bWantsToRun)
-		OnRunPressed();
 }
 
 void ASnowkamiCharacter::OnSnowPressed()
@@ -295,8 +326,9 @@ void ASnowkamiCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, u
 		case EMovementMode::MOVE_Walking:
 			GetCharacterMovement()->AirControl = GetDefaultPlayerObject()->GetCharacterMovement()->AirControl;
 			GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
+			bIsPerformingWallAction = false;
 
-			if (bWantsToRun)
+			if (bRunPressed)
 				OnRunPressed();
 
 			if(bIsSnowPressed)
@@ -317,14 +349,18 @@ void ASnowkamiCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	
 	if (currentPlayerSpline != NULL && currentPlayerSpline->GetPlayerSpline() != NULL)
-	{
-		UpdatePlayer2D(DeltaTime);
-	}
+		Tick_UpdatePlayer2D(DeltaTime);
 
-	UpdateCamera(DeltaTime);
+	if (GetCharacterMovement()->IsFalling())
+		Tick_CheckForWallAction(DeltaTime);
+
+	Tick_UpdateCamera(DeltaTime);
+
+	if (SnowText && !SnowText->bHiddenInGame)
+		SnowText->SetWorldRotation((FollowCamera->GetComponentLocation() - SnowText->GetComponentLocation()).Rotation());
 }
 
-void ASnowkamiCharacter::UpdatePlayer2D(float DeltaTime)
+void ASnowkamiCharacter::Tick_UpdatePlayer2D(float DeltaTime)
 {
 	if (currentPlayerSpline == NULL || currentPlayerSpline->GetPlayerSpline() == NULL)
 		return;
@@ -337,7 +373,12 @@ void ASnowkamiCharacter::UpdatePlayer2D(float DeltaTime)
 	GetController()->SetControlRotation(FMath::RInterpTo(GetControlRotation(), TargetControlRotation_2D, DeltaTime, CameraInterpSpeed_2D));
 }
 
-void ASnowkamiCharacter::UpdateCamera(float DeltaTime)
+void ASnowkamiCharacter::Tick_CheckForWallAction(float DeltaTime)
+{
+
+}
+
+void ASnowkamiCharacter::Tick_UpdateCamera(float DeltaTime)
 {
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, TargetCameraDistance, DeltaTime, CameraInterpSpeeed_Distance);
 	CameraBoom->TargetOffset = FMath::VInterpTo(CameraBoom->TargetOffset, GetDefaultPlayerObject()->CameraBoom->TargetOffset + TargetCameraOffset, DeltaTime, CameraInterpSpeed_Offset);

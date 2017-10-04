@@ -40,58 +40,47 @@ public:
 	float BaseLookUpRate;
 
 protected:
-
-	/** Called for forwards/backward input */
+	// Camera Inputs
 	void MoveForward(float Value);
-
-	/** Called for side to side input */
 	void MoveRight(float Value);
 
-	/** 
-	 * Called via input to turn at a given rate. 
-	 * @param Rate	This is a normalized rate, i.e. 1.0 means 100% of desired turn rate
-	 */
 	void TurnAtRate(float Rate);
-
-	/**
-	 * Called via input to turn look up/down at a given rate. 
-	 * @param Rate	This is a normalized rate, i.e. 1.0 means 100% of desired turn rate
-	 */
 	void LookUpAtRate(float Rate);
 
 	void UpdateCameraFromMouse_Pitch(float fVal);
 	void UpdateCameraFromMouse_Yaw(float fVal);
 
-	void Jump();
+	// Hit Event
+	UFUNCTION()
+		void OnHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
+	// Jumping
+	void Jump() override;
+	void StopJumping() override;
+
+	UPROPERTY(BlueprintReadOnly, Category = Jumping)
+		bool bIsJumpPressed;
+
+	// Crouching
+	void OnCrouchPressed();
+	void OnCrouchReleased();
+
+	void Crouch(bool bClientSimulation = false) override;
+	void UnCrouch(bool bClientSimulation = false) override;
+
+
+	UPROPERTY(BlueprintReadOnly, Category = Crouch)
+		bool bCrouchPressed;
+
+	// Yipping
 	void OnYipPressed();
 	void OnYipReleased();
 
 	void Yip();
 
+	// Snow Powers
 	void OnSnowPressed();
 	void OnSnowReleased();
-
-	void OnRunPressed();
-	void OnRunReleased();
-
-	void OnCrouchPressed();
-	void OnCrouchReleased();
-
-	void Tick(float DeltaTime) override;
-	void UpdatePlayer2D(float DeltaTime);
-	void UpdateCamera(float DeltaTime);
-
-	void SetNewPlayerCameraMode(bool bUse2D);
-	void DebugPlayer(FColor color, FString message, int indentCount);
-
-	UPROPERTY(BlueprintReadOnly, Category = Snow)
-		bool bWantsToRun;
-
-	UPROPERTY(BlueprintReadOnly, Category = Snow)
-		bool bCrouchPressed;
-
-	float RunningSpeedMult;
 
 	UPROPERTY(BlueprintReadOnly, Category = Snow)
 		bool bIsSnowPressed;
@@ -102,6 +91,26 @@ protected:
 
 	float lastSnowPressedTime;
 	float lastSnowReleasedTime;
+
+	// Running
+	void OnRunPressed();
+	void OnRunReleased();
+
+	UPROPERTY(BlueprintReadOnly, Category = Running)
+		bool bRunPressed;
+
+	float RunningSpeedMult;
+
+	// Tick Functions
+	void Tick(float DeltaTime) override;
+	void Tick_UpdatePlayer2D(float DeltaTime);
+	void Tick_UpdateCamera(float DeltaTime);
+	void Tick_CheckForWallAction(float DeltaTime);
+
+	void SetNewPlayerCameraMode(bool bUse2D);
+	void DebugPlayer(FColor color, FString message, int indentCount);
+
+	bool bIsPerformingWallAction;
 
 	ASnowkami_2DSpline* currentPlayerSpline;
 
