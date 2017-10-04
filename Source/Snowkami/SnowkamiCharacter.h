@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Snowkami_2DSpline.h"
 #include "SnowkamiCharacter.generated.h"
 
 UCLASS(config=Game)
@@ -31,9 +32,6 @@ public:
 
 protected:
 
-	/** Resets HMD orientation in VR. */
-	void OnResetVR();
-
 	/** Called for forwards/backward input */
 	void MoveForward(float Value);
 
@@ -52,11 +50,36 @@ protected:
 	 */
 	void LookUpAtRate(float Rate);
 
-	/** Handler for when a touch input begins. */
-	void TouchStarted(ETouchIndex::Type FingerIndex, FVector Location);
+	void UpdateCameraFromMouse_Pitch(float fVal);
+	void UpdateCameraFromMouse_Yaw(float fVal);
 
-	/** Handler for when a touch input stops. */
-	void TouchStopped(ETouchIndex::Type FingerIndex, FVector Location);
+	void Jump();
+
+	void OnSnowPressed();
+	void OnSnowReleased();
+
+	void Tick(float DeltaTime) override;
+	void UpdateCamera(float DeltaTime);
+
+	void SetNewPlayerCameraMode(bool bUse2D);
+	void DebugPlayer(FColor color, FString message, int indentCount);
+
+	UPROPERTY(BlueprintReadOnly, Category = Snow)
+		bool bIsSnowPressed;
+
+	float lastSnowPressedTime;
+	float lastSnowReleasedTime;
+
+	ASnowkami_2DSpline* currentPlayerSpline;
+	float currentPlayerSpline_Distance;
+
+	FRotator Target2DCameraRotation;
+	float CameraInterpSpeed_2D;
+	float CameraInterpSpeeed_Distance;
+
+	float TargetCameraDistance;
+
+	bool bTempUseNon2DControls;
 
 protected:
 	// APawn interface
@@ -68,5 +91,10 @@ public:
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	FORCEINLINE class ASnowkami_2DSpline* GetCurrentPlayerSpline() const { return currentPlayerSpline;  }
+
+	UFUNCTION()
+	void SetCurrentPlayerSpline(ASnowkami_2DSpline* NewSpline);
 };
 

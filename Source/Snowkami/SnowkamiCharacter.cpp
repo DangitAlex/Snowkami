@@ -8,12 +8,15 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "DrawDebugHelpers.h"
 
 //////////////////////////////////////////////////////////////////////////
 // ASnowkamiCharacter
 
 ASnowkamiCharacter::ASnowkamiCharacter()
 {
+	//PrimaryActorTick.bCanEverTick = true;
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 
@@ -45,6 +48,18 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
+
+	bIsSnowPressed = false;
+
+	currentPlayerSpline = NULL;
+	currentPlayerSpline_Distance = 0.f;
+
+	TargetCameraDistance = 130.f;
+
+	CameraInterpSpeed_2D = 3.f;
+	CameraInterpSpeeed_Distance = 4.f;
+	
+	bTempUseNon2DControls = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -63,33 +78,39 @@ void ASnowkamiCharacter::SetupPlayerInputComponent(class UInputComponent* Player
 	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
 	// "turn" handles devices that provide an absolute delta, such as a mouse.
 	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick
-	PlayerInputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
+	PlayerInputComponent->BindAxis("Turn", this, &ASnowkamiCharacter::UpdateCameraFromMouse_Yaw);
 	PlayerInputComponent->BindAxis("TurnRate", this, &ASnowkamiCharacter::TurnAtRate);
-	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
+	PlayerInputComponent->BindAxis("LookUp", this, &ASnowkamiCharacter::UpdateCameraFromMouse_Pitch);
 	PlayerInputComponent->BindAxis("LookUpRate", this, &ASnowkamiCharacter::LookUpAtRate);
 
-	// handle touch devices
-	PlayerInputComponent->BindTouch(IE_Pressed, this, &ASnowkamiCharacter::TouchStarted);
-	PlayerInputComponent->BindTouch(IE_Released, this, &ASnowkamiCharacter::TouchStopped);
-
-	// VR headset functionality
-	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &ASnowkamiCharacter::OnResetVR);
+	PlayerInputComponent->BindAction("Snow", IE_Pressed, this, &ASnowkamiCharacter::OnSnowPressed);
+	PlayerInputComponent->BindAction("Snow", IE_Released, this, &ASnowkamiCharacter::OnSnowReleased);
 }
 
-
-void ASnowkamiCharacter::OnResetVR()
+void ASnowkamiCharacter::UpdateCameraFromMouse_Pitch(float fVal)
 {
-	UHeadMountedDisplayFunctionLibrary::ResetOrientationAndPosition();
+	if ((Controller != NULL) && (fVal != 0.0f))
+	{
+		if (currentPlayerSpline != NULL)
+		{
+
+		}
+		else
+			AddControllerPitchInput(fVal);
+	}
 }
 
-void ASnowkamiCharacter::TouchStarted(ETouchIndex::Type FingerIndex, FVector Location)
+void ASnowkamiCharacter::UpdateCameraFromMouse_Yaw(float fVal)
 {
-		Jump();
-}
+	if ((Controller != NULL) && (fVal != 0.0f))
+	{
+		if (currentPlayerSpline != NULL)
+		{
 
-void ASnowkamiCharacter::TouchStopped(ETouchIndex::Type FingerIndex, FVector Location)
-{
-		StopJumping();
+		}
+		else
+			AddControllerYawInput(fVal);
+	}
 }
 
 void ASnowkamiCharacter::TurnAtRate(float Rate)
@@ -106,15 +127,25 @@ void ASnowkamiCharacter::LookUpAtRate(float Rate)
 
 void ASnowkamiCharacter::MoveForward(float Value)
 {
-	if ((Controller != NULL) && (Value != 0.0f))
+	if ((Controller != NULL))
 	{
-		// find out which way is forward
-		const FRotator Rotation = Controller->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
+		if ((Value != 0.0f) && currentPlayerSpline == NULL)
+		{
+			// find out which way is forward
+			const FRotator Rotation = Controller->GetControlRotation();
+			const FRotator YawRotation(0, Rotation.Yaw, 0);
 
-		// get forward vector
-		const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-		AddMovementInput(Direction, Value);
+			// get forward vector
+			const FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+			AddMovementInput(Direction, Value);
+		}
+		else if (currentPlayerSpline != NULL && bTempUseNon2DControls)
+		{
+			if (FMath::Abs(Value) > 0.f)
+				AddMovementInput(GetVelocity().ProjectOnToNormal(currentPlayerSpline->GetPlayerSpline()->FindTangentClosestToWorldLocation(currentPlayerSpline->GetPlayerSpline()->FindLocationClosestToWorldLocation(GetActorLocation(), ESplineCoordinateSpace::World), ESplineCoordinateSpace::World)), FMath::Abs(Value));
+			else
+				bTempUseNon2DControls = false;
+		}
 	}
 }
 
@@ -131,4 +162,92 @@ void ASnowkamiCharacter::MoveRight(float Value)
 		// add movement in that direction
 		AddMovementInput(Direction, Value);
 	}
+}
+
+void ASnowkamiCharacter::Jump()
+{
+	Super::Jump();
+
+	if(CanJump() && bIsSnowPressed)
+		GetCharacterMovement()->AddImpulse(FVector(0.f, 0.f, 400.f), true);
+}
+
+void ASnowkamiCharacter::OnSnowPressed()
+{
+	bIsSnowPressed = true;
+	lastSnowPressedTime = GetGameTimeSinceCreation();
+}
+
+void ASnowkamiCharacter::OnSnowReleased()
+{
+	bIsSnowPressed = false;
+	lastSnowReleasedTime = GetGameTimeSinceCreation();
+}
+
+void ASnowkamiCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	
+	if (currentPlayerSpline != NULL && currentPlayerSpline->GetPlayerSpline() != NULL)
+	{
+		FVector closestLocation = currentPlayerSpline->GetPlayerSpline()->FindLocationClosestToWorldLocation(GetActorLocation(), ESplineCoordinateSpace::World);
+
+		DrawDebugSphere(GetWorld(), closestLocation, 30.f, 4, FColor::Purple, false, 0.03f, (uint8)'\000', 1.f);
+
+		SetActorLocation(FMath::VInterpConstantTo(GetActorLocation(), FVector(closestLocation.X, closestLocation.Y, GetActorLocation().Z), DeltaTime, 500.f));
+
+		Target2DCameraRotation = (-currentPlayerSpline->GetPlayerSpline()->FindRightVectorClosestToWorldLocation(closestLocation, ESplineCoordinateSpace::World)).Rotation();
+
+		GetController()->SetControlRotation(FMath::RInterpTo(GetControlRotation(), Target2DCameraRotation, DeltaTime, CameraInterpSpeed_2D));
+	}
+
+	UpdateCamera(DeltaTime);
+}
+
+void ASnowkamiCharacter::UpdateCamera(float DeltaTime)
+{
+	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, TargetCameraDistance, DeltaTime, CameraInterpSpeeed_Distance);
+	//DebugPlayer(FColor::Yellow, FString::SanitizeFloat(CameraBoom->TargetArmLength), 0);
+}
+
+void ASnowkamiCharacter::SetNewPlayerCameraMode(bool bUse2D)
+{
+	if (bUse2D)
+	{
+		TargetCameraDistance = 250.f;
+		bTempUseNon2DControls = true;
+	}
+	else
+	{
+		TargetCameraDistance = 130.f;
+		bTempUseNon2DControls = false;
+	}
+}
+
+void ASnowkamiCharacter::DebugPlayer(FColor color, FString message, int indentCount)
+{
+	FString debugMessage;
+
+	if (indentCount > 0)
+	{
+		for (int i = 0; i < indentCount; i++)
+		{
+			debugMessage.Append("  ");
+		}
+	}
+
+	debugMessage.Append("Player :: " + message);
+
+	if (GEngine)
+		GEngine->AddOnScreenDebugMessage(-1, 15.0f, color, debugMessage);
+}
+
+void ASnowkamiCharacter::SetCurrentPlayerSpline(ASnowkami_2DSpline* NewSpline)
+{
+	currentPlayerSpline = NewSpline;
+
+	if (currentPlayerSpline)
+		SetNewPlayerCameraMode(true);
+	else
+		SetNewPlayerCameraMode(false);
 }
