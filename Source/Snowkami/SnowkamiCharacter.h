@@ -58,26 +58,47 @@ protected:
 	void OnSnowPressed();
 	void OnSnowReleased();
 
+	void OnRunPressed();
+	void OnRunReleased();
+
 	void Tick(float DeltaTime) override;
+	void UpdatePlayer2D(float DeltaTime);
 	void UpdateCamera(float DeltaTime);
 
 	void SetNewPlayerCameraMode(bool bUse2D);
 	void DebugPlayer(FColor color, FString message, int indentCount);
 
 	UPROPERTY(BlueprintReadOnly, Category = Snow)
+		bool bWantsToRun;
+
+	float RunningSpeedMult;
+
+	UPROPERTY(BlueprintReadOnly, Category = Snow)
 		bool bIsSnowPressed;
+
+	float SnowJump_Impulse;
+	float SnowJump_AirControlMult;
+	float SnowJump_WalkSpeedMult;
 
 	float lastSnowPressedTime;
 	float lastSnowReleasedTime;
 
 	ASnowkami_2DSpline* currentPlayerSpline;
-	float currentPlayerSpline_Distance;
 
 	FRotator Target2DCameraRotation;
 	float CameraInterpSpeed_2D;
+	
+	float TargetCameraDistance;
+	float TargetCameraDistance_2D;
 	float CameraInterpSpeeed_Distance;
 
-	float TargetCameraDistance;
+	float TargetCameraFOV_Default;
+	float TargetCameraFOV_Mult_Current;
+	float TargetCameraFOV_Mult_MAX;
+	float CameraInterpSpeed_FOV;
+
+	float FOVWarpStartPitch;
+	float FOVWarpEndPitch;
 
 	bool bTempUseNon2DControls;
 
@@ -85,6 +106,10 @@ protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	// End of APawn interface
+
+	void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode) override;
+
+	ASnowkamiCharacter* GetDefaultPlayerObject();
 
 public:
 	/** Returns CameraBoom subobject **/

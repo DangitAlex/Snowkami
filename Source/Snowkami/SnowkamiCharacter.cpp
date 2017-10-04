@@ -32,13 +32,17 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f); // ...at this rotation rate
-	GetCharacterMovement()->JumpZVelocity = 600.f;
+	GetCharacterMovement()->JumpZVelocity = 375.f;
 	GetCharacterMovement()->AirControl = 0.2f;
+	//GetCharacterMovement()->GravityScale = 1.f;
+	GetCharacterMovement()->BrakingFriction = 0.f;
+	GetCharacterMovement()->GroundFriction = 0.f;
+	GetCharacterMovement()->BrakingFrictionFactor = 0.f;
 
 	// Create a camera boom (pulls in towards the player if there is a collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 300.0f; // The camera follows at this distance behind the character	
+	CameraBoom->TargetArmLength = 100.0f; // The camera follows at this distance behind the character	
 	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
 
 	// Create a follow camera
@@ -49,17 +53,36 @@ ASnowkamiCharacter::ASnowkamiCharacter()
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
 
+	bWantsToRun = false;
 	bIsSnowPressed = false;
 
-	currentPlayerSpline = NULL;
-	currentPlayerSpline_Distance = 0.f;
+	SnowJump_Impulse = 225.f;
+	SnowJump_AirControlMult = 1.f;
+	SnowJump_WalkSpeedMult = 2.f;
 
-	TargetCameraDistance = 130.f;
+	RunningSpeedMult = 1.5f;
+	
+	currentPlayerSpline = NULL;
+
+	TargetCameraDistance = CameraBoom->TargetArmLength;
+	TargetCameraDistance_2D = 160.f;
+	TargetCameraFOV_Default = 90.f;
+	TargetCameraFOV_Mult_Current = 1.f;
+	TargetCameraFOV_Mult_MAX = 1.3f;
+
+	FOVWarpStartPitch = 15.f;
+	FOVWarpEndPitch = 60.f;
 
 	CameraInterpSpeed_2D = 3.f;
 	CameraInterpSpeeed_Distance = 4.f;
+	CameraInterpSpeed_FOV = 2.f;
 	
 	bTempUseNon2DControls = false;
+}
+
+ASnowkamiCharacter* ASnowkamiCharacter::GetDefaultPlayerObject()
+{
+	return Cast<ASnowkamiCharacter>(GetClass()->GetDefaultObject());
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -82,6 +105,9 @@ void ASnowkamiCharacter::SetupPlayerInputComponent(class UInputComponent* Player
 	PlayerInputComponent->BindAxis("TurnRate", this, &ASnowkamiCharacter::TurnAtRate);
 	PlayerInputComponent->BindAxis("LookUp", this, &ASnowkamiCharacter::UpdateCameraFromMouse_Pitch);
 	PlayerInputComponent->BindAxis("LookUpRate", this, &ASnowkamiCharacter::LookUpAtRate);
+
+	PlayerInputComponent->BindAction("Run", IE_Pressed, this, &ASnowkamiCharacter::OnRunPressed);
+	PlayerInputComponent->BindAction("Run", IE_Released, this, &ASnowkamiCharacter::OnRunReleased);
 
 	PlayerInputComponent->BindAction("Snow", IE_Pressed, this, &ASnowkamiCharacter::OnSnowPressed);
 	PlayerInputComponent->BindAction("Snow", IE_Released, this, &ASnowkamiCharacter::OnSnowReleased);
@@ -127,7 +153,7 @@ void ASnowkamiCharacter::LookUpAtRate(float Rate)
 
 void ASnowkamiCharacter::MoveForward(float Value)
 {
-	if ((Controller != NULL))
+	if (Controller != NULL)
 	{
 		if ((Value != 0.0f) && currentPlayerSpline == NULL)
 		{
@@ -168,8 +194,28 @@ void ASnowkamiCharacter::Jump()
 {
 	Super::Jump();
 
-	if(CanJump() && bIsSnowPressed)
-		GetCharacterMovement()->AddImpulse(FVector(0.f, 0.f, 400.f), true);
+	if (CanJump() && bIsSnowPressed)
+	{
+		GetCharacterMovement()->AirControl = SnowJump_AirControlMult;
+		GetCharacterMovement()->AddImpulse(FVector(0.f, 0.f, SnowJump_Impulse), true);
+		GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed * SnowJump_WalkSpeedMult;
+	}
+}
+
+void ASnowkamiCharacter::OnRunPressed()
+{
+	bWantsToRun = true;
+	GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed * RunningSpeedMult;
+
+	//DebugPlayer(FColor::Yellow, FString::SanitizeFloat(GetCharacterMovement()->MaxWalkSpeed), 0);
+}
+
+void ASnowkamiCharacter::OnRunReleased()
+{
+	bWantsToRun = false;
+	GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
+
+	//DebugPlayer(FColor::Yellow, FString::SanitizeFloat(GetCharacterMovement()->MaxWalkSpeed), 0);
 }
 
 void ASnowkamiCharacter::OnSnowPressed()
@@ -184,42 +230,78 @@ void ASnowkamiCharacter::OnSnowReleased()
 	lastSnowReleasedTime = GetGameTimeSinceCreation();
 }
 
+void ASnowkamiCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+
+	switch (GetCharacterMovement()->MovementMode)
+	{
+		case EMovementMode::MOVE_Walking:
+			GetCharacterMovement()->AirControl = GetDefaultPlayerObject()->GetCharacterMovement()->AirControl;
+			GetCharacterMovement()->MaxWalkSpeed = GetDefaultPlayerObject()->GetCharacterMovement()->MaxWalkSpeed;
+			if (bWantsToRun)
+				OnRunPressed();
+			break;
+		case EMovementMode::MOVE_Falling:
+			GetCharacterMovement()->MaxWalkSpeed = ASnowkamiCharacter::GetCharacterMovement()->MaxWalkSpeed;
+			break;
+		case EMovementMode::MOVE_Swimming:
+
+			break;
+	}
+}
+
 void ASnowkamiCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
 	if (currentPlayerSpline != NULL && currentPlayerSpline->GetPlayerSpline() != NULL)
 	{
-		FVector closestLocation = currentPlayerSpline->GetPlayerSpline()->FindLocationClosestToWorldLocation(GetActorLocation(), ESplineCoordinateSpace::World);
-
-		DrawDebugSphere(GetWorld(), closestLocation, 30.f, 4, FColor::Purple, false, 0.03f, (uint8)'\000', 1.f);
-
-		SetActorLocation(FMath::VInterpConstantTo(GetActorLocation(), FVector(closestLocation.X, closestLocation.Y, GetActorLocation().Z), DeltaTime, 500.f));
-
-		Target2DCameraRotation = (-currentPlayerSpline->GetPlayerSpline()->FindRightVectorClosestToWorldLocation(closestLocation, ESplineCoordinateSpace::World)).Rotation();
-
-		GetController()->SetControlRotation(FMath::RInterpTo(GetControlRotation(), Target2DCameraRotation, DeltaTime, CameraInterpSpeed_2D));
+		UpdatePlayer2D(DeltaTime);
 	}
 
 	UpdateCamera(DeltaTime);
+}
+
+void ASnowkamiCharacter::UpdatePlayer2D(float DeltaTime)
+{
+	if (currentPlayerSpline == NULL || currentPlayerSpline->GetPlayerSpline() == NULL)
+		return;
+
+	FVector closestLocation = currentPlayerSpline->GetPlayerSpline()->FindLocationClosestToWorldLocation(GetActorLocation(), ESplineCoordinateSpace::World);
+	//DrawDebugSphere(GetWorld(), closestLocation, 30.f, 4, FColor::Purple, false, 0.03f, (uint8)'\000', 1.f);
+
+	SetActorLocation(FMath::VInterpConstantTo(GetActorLocation(), FVector(closestLocation.X, closestLocation.Y, GetActorLocation().Z), DeltaTime, 500.f));
+	Target2DCameraRotation = (-currentPlayerSpline->GetPlayerSpline()->FindRightVectorClosestToWorldLocation(closestLocation, ESplineCoordinateSpace::World)).Rotation();
+	GetController()->SetControlRotation(FMath::RInterpTo(GetControlRotation(), Target2DCameraRotation, DeltaTime, CameraInterpSpeed_2D));
 }
 
 void ASnowkamiCharacter::UpdateCamera(float DeltaTime)
 {
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, TargetCameraDistance, DeltaTime, CameraInterpSpeeed_Distance);
 	//DebugPlayer(FColor::Yellow, FString::SanitizeFloat(CameraBoom->TargetArmLength), 0);
+
+	if (GetControlRotation().Pitch > FOVWarpStartPitch && GetControlRotation().Pitch <= 90.f)
+	{
+		TargetCameraFOV_Mult_Current = FMath::Lerp(1.f, TargetCameraFOV_Mult_MAX, (FMath::Clamp(((GetControlRotation().Pitch - FOVWarpStartPitch) / (FOVWarpEndPitch - FOVWarpStartPitch)), 0.f, 1.f)));
+		//DebugPlayer(FColor::Yellow, FString::SanitizeFloat(FMath::Clamp(((GetControlRotation().Pitch - FOVWarpStartPitch) / (FOVWarpEndPitch - FOVWarpStartPitch)), 0.f, 1.f)) + " :: " + FString::SanitizeFloat(TargetCameraFOV_Mult_Current), 0);
+	}
+	else
+		TargetCameraFOV_Mult_Current = 1.f;
+
+	FollowCamera->FieldOfView = FMath::FInterpTo(FollowCamera->FieldOfView, (TargetCameraFOV_Default * TargetCameraFOV_Mult_Current), DeltaTime, CameraInterpSpeed_FOV);
 }
 
 void ASnowkamiCharacter::SetNewPlayerCameraMode(bool bUse2D)
 {
 	if (bUse2D)
 	{
-		TargetCameraDistance = 250.f;
+		TargetCameraDistance = TargetCameraDistance_2D;
 		bTempUseNon2DControls = true;
 	}
 	else
 	{
-		TargetCameraDistance = 130.f;
+		TargetCameraDistance = GetDefaultPlayerObject()->TargetCameraDistance;
 		bTempUseNon2DControls = false;
 	}
 }

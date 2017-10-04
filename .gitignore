@@ -49,7 +49,7 @@ SourceArt/**/*.png
 SourceArt/**/*.tga
 
 # Binary Files
-# Binaries/*
+Binaries/*
 
 # Builds
 Build/*
@@ -73,3 +73,6 @@ Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Hot Reload Files
+enc_temp_folder/*
