@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Snowkami_2DSpline.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Components/TextRenderComponent.h"
 #include "SnowkamiCharacter.generated.h"
 
 UCLASS(config=Game)
@@ -19,6 +21,13 @@ class ASnowkamiCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class UParticleSystemComponent* SnowVFX;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class UTextRenderComponent* SnowText;
+
 public:
 	ASnowkamiCharacter();
 
@@ -55,11 +64,19 @@ protected:
 
 	void Jump();
 
+	void OnYipPressed();
+	void OnYipReleased();
+
+	void Yip();
+
 	void OnSnowPressed();
 	void OnSnowReleased();
 
 	void OnRunPressed();
 	void OnRunReleased();
+
+	void OnCrouchPressed();
+	void OnCrouchReleased();
 
 	void Tick(float DeltaTime) override;
 	void UpdatePlayer2D(float DeltaTime);
@@ -70,6 +87,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = Snow)
 		bool bWantsToRun;
+
+	UPROPERTY(BlueprintReadOnly, Category = Snow)
+		bool bCrouchPressed;
 
 	float RunningSpeedMult;
 
@@ -85,7 +105,7 @@ protected:
 
 	ASnowkami_2DSpline* currentPlayerSpline;
 
-	FRotator Target2DCameraRotation;
+	FRotator TargetControlRotation_2D;
 	float CameraInterpSpeed_2D;
 	
 	float TargetCameraDistance;
@@ -96,6 +116,12 @@ protected:
 	float TargetCameraFOV_Mult_Current;
 	float TargetCameraFOV_Mult_MAX;
 	float CameraInterpSpeed_FOV;
+
+	FVector TargetCameraOffset;
+	FRotator TargetCameraRotation;
+
+	float CameraInterpSpeed_Offset;
+	float CameraInterpSpeed_Rotation;
 
 	float FOVWarpStartPitch;
 	float FOVWarpEndPitch;
